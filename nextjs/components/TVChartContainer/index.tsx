@@ -11,29 +11,39 @@ import {
   HistoryCallback,
   DatafeedErrorCallback,
   Bar,
+  SubscribeBarsCallback,
+  ResolveCallback,
 } from "@/public/static/charting_library";
-import { Codex } from "@codex-data/sdk";
+import { CleanupFunction, Codex } from "@codex-data/sdk";
 import {
   OnBarsUpdatedResponse,
   Price,
   QuoteToken,
+  BarsResponse,
 } from "@codex-data/sdk/dist/resources/graphql";
+
+interface OnBarsUpdatedMeta {
+  onBarsUpdated: OnBarsUpdatedResponse;
+}
 
 export const TVChartContainer = (
   props: Partial<ChartingLibraryWidgetOptions>
 ) => {
   const DEFINED_API_KEY = "aac2263ab4a606f796631215138279923f13e57a";
-  const PAIR_ID = "0x16b9a82891338f9ba80e2d6970fdda79d1eb0dae:56";
+  const PAIR_ID = "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj:1399811149";
 
-  const activeSubscriptions = useRef(new Map());
-  const subscriptionCallbacks = useRef(new Map());
+  const activeSubscriptions = useRef(new Map<string, CleanupFunction>());
+  const subscriptionCallbacks = useRef(
+    new Map<string, SubscribeBarsCallback>()
+  );
+
   const chartContainerRef = useRef<HTMLDivElement>(
     null
   ) as React.RefObject<HTMLInputElement>;
 
   const sdk = new Codex(DEFINED_API_KEY);
 
-  const transformToTradingViewBars = (data: any): Bar[] => {
+  const transformToTradingViewBars = (data: BarsResponse): Bar[] => {
     if (!data || !Array.isArray(data.t)) {
       return [];
     }
@@ -48,10 +58,11 @@ export const TVChartContainer = (
     }));
   };
 
-  const handleBarUpdate = (data: OnBarsUpdatedResponse) => {
-    if (!data?.aggregates?.r1?.token) return;
+  const handleBarUpdate = (data: OnBarsUpdatedMeta) => {
+    console.log("handleBarUpdate", data.onBarsUpdated);
+    if (!data || !data.onBarsUpdated.aggregates?.r1?.token) return;
 
-    const token = data.aggregates.r1.token;
+    const token = data.onBarsUpdated.aggregates.r1.token;
     const bar: Bar = {
       time: token.t * 1000,
       open: Number(token.o),
@@ -95,6 +106,7 @@ export const TVChartContainer = (
       {
         next: ({ data }) => {
           if (data) {
+            // @ts-expect-error - Types are weirdly mismatched?
             handleBarUpdate(data);
           }
         },
@@ -111,10 +123,10 @@ export const TVChartContainer = (
   useEffect(() => {
     const widgetOptions: ChartingLibraryWidgetOptions = {
       enabled_features: ["seconds_resolution", "tick_resolution"],
-      symbol: props.symbol || PAIR_ID,
+      symbol: "SOL",
       // BEWARE: no trailing slash is expected in feed URL
       datafeed: {
-        onReady: (callback: any) => {
+        onReady: (callback) => {
           setTimeout(
             () =>
               callback({
@@ -130,6 +142,9 @@ export const TVChartContainer = (
                   "D",
                   "W",
                 ].map((res) => res as ResolutionString),
+                supports_marks: false,
+                supports_timescale_marks: false,
+                supports_time: true,
               }),
             0
           );
@@ -142,7 +157,11 @@ export const TVChartContainer = (
         ) => {
           onResult([]);
         },
-        resolveSymbol: (symbolName: any, onResolve: any, onError: any) => {
+        resolveSymbol: (
+          symbolName: string,
+          onResolve: ResolveCallback,
+          onError: DatafeedErrorCallback
+        ) => {
           setTimeout(() => {
             onResolve({
               name: symbolName,
@@ -150,40 +169,98 @@ export const TVChartContainer = (
               type: "crypto",
               session: "24x7",
               timezone: "Etc/UTC",
-              exchange: "",
+              exchange: "Raydium",
               minmov: 1,
               pricescale: 100,
               has_intraday: true,
               has_seconds: true,
-              intraday_multipliers: ["1", "5", "15", "30", "60"],
-              seconds_multipliers: ["1S"],
+              has_ticks: true,
               has_daily: true,
               has_weekly_and_monthly: true,
               has_empty_bars: true,
+              listed_exchange: "Raydium",
               volume_precision: 8,
+              data_status: "streaming",
+              intraday_multipliers: ["1", "5", "15", "30", "60", "240"],
+              seconds_multipliers: ["1", "5"],
+              supported_resolutions: [
+                "1S",
+                "5S",
+                "1",
+                "5",
+                "15",
+                "30",
+                "60",
+                "240",
+                "D",
+                "W",
+              ].map((res) => res as ResolutionString),
               description: "",
-              listed_exchange: "",
+              currency_code: "USDC",
               format: "price",
             });
           }, 0);
         },
         getBars: async (
-          symbolInfo: any,
-          resolution: any,
-          periodParams: any,
-          onResult: any,
-          onError: any
+          symbolInfo: LibrarySymbolInfo,
+          resolution: ResolutionString,
+          periodParams: PeriodParams,
+          onResult: HistoryCallback,
+          onError: DatafeedErrorCallback
         ) => {
           try {
-            const currentTime = Math.floor(Date.now() / 1000);
-            const twoHoursAgo = currentTime - 7200; // 2 hrs
+            const resolutionMap: { [key: string]: number } = {
+              "1S": 1,
+              "5S": 5,
+              "1": 60,
+              "5": 300,
+              "15": 900,
+              "30": 1800,
+              "60": 3600,
+              "240": 14400,
+              D: 86400,
+              W: 604800,
+            };
+
+            const resolutionInSeconds = resolutionMap[resolution] || 60;
+            const maxDataPoints = 1500;
+            const timeRange = maxDataPoints * resolutionInSeconds;
+
+            // Convert TradingView's millisecond timestamps to seconds
+            let to = periodParams.to
+              ? Math.floor(periodParams.to / 1000)
+              : Math.floor(Date.now() / 1000);
+            let from = periodParams.from
+              ? Math.floor(periodParams.from / 1000)
+              : to - timeRange;
+
+            // Ensure 'from' is not greater than 'to'
+            if (from >= to) {
+              console.warn(
+                "Invalid time range detected, adjusting 'from' value"
+              );
+              from = to - timeRange;
+            }
+
+            // Ensure we don't exceed the max data points
+            const actualTimeRange = to - from;
+            if (actualTimeRange > timeRange) {
+              from = to - timeRange;
+            }
+
+            console.log(
+              `Fetching bars from ${from} to ${to} with resolution ${resolution}`
+            );
 
             const response = await sdk.queries.getBars({
               symbol: PAIR_ID,
-              from: twoHoursAgo,
-              to: currentTime,
-              resolution: "1S",
+              from,
+              to,
+              resolution: resolution.replace("S", ""), // Remove 'S' suffix for seconds
+              removeEmptyBars: true,
             });
+
+            console.log("GetBars response:", response);
 
             if (!response.getBars) {
               onResult([], { noData: true });
@@ -191,19 +268,34 @@ export const TVChartContainer = (
             }
 
             const bars = transformToTradingViewBars(response.getBars);
-            onResult(bars, { noData: bars.length === 0 });
+            console.log("Trading View Bars:", bars);
+            onResult(bars, {
+              noData: bars.length === 0,
+              nextTime: periodParams.firstDataRequest
+                ? undefined
+                : bars[0]?.time,
+            });
           } catch (err) {
             console.error("Error fetching bars:", err);
-            onError(err);
+            if (err instanceof Error) {
+              onError(err.message);
+            } else {
+              onError(err as string);
+            }
           }
         },
         subscribeBars: (
-          symbolInfo: any,
-          resolution: any,
-          onTick: any,
-          subscriberUID: any
+          symbolInfo: LibrarySymbolInfo,
+          resolution: ResolutionString,
+          onTick: SubscribeBarsCallback,
+          subscriberUID: string
         ) => {
-          console.log("Subscribing to bars:", subscriberUID);
+          console.log(
+            "Subscribing to bars:",
+            subscriberUID,
+            "resolution:",
+            resolution
+          );
           subscriptionCallbacks.current.set(subscriberUID, onTick);
           const subscription = createSubscription(subscriberUID);
           activeSubscriptions.current.set(subscriberUID, subscription);
@@ -211,17 +303,24 @@ export const TVChartContainer = (
         unsubscribeBars: (subscriberUID: any) => {
           const subscription = activeSubscriptions.current.get(subscriberUID);
           if (subscription) {
-            subscription.unsubscribe();
+            console.log("Unsubscribing from bars:", subscriberUID);
+            subscription();
             activeSubscriptions.current.delete(subscriberUID);
             subscriptionCallbacks.current.delete(subscriberUID);
           }
         },
       },
-      interval: (props.interval as ResolutionString) || "1S",
+      interval:
+        (props.interval as ResolutionString) || ("1S" as ResolutionString),
       container: chartContainerRef.current,
       library_path: props.library_path,
       locale: props.locale as LanguageCode,
-      disabled_features: ["use_localstorage_for_settings"],
+      disabled_features: [
+        "use_localstorage_for_settings",
+        "timeframes_toolbar",
+        "volume_force_overlay",
+        "create_volume_indicator_by_default",
+      ],
       charts_storage_url: props.charts_storage_url,
       charts_storage_api_version: props.charts_storage_api_version,
       client_id: props.client_id,
@@ -253,7 +352,7 @@ export const TVChartContainer = (
     return () => {
       // Cleanup subscriptions
       activeSubscriptions.current.forEach((subscription) => {
-        subscription.unsubscribe();
+        subscription();
       });
       activeSubscriptions.current.clear();
       subscriptionCallbacks.current.clear();
