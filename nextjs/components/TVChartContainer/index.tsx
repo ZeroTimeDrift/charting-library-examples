@@ -1,11 +1,10 @@
 import styles from "./index.module.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import {
   ChartingLibraryWidgetOptions,
   LanguageCode,
   ResolutionString,
   widget,
-  IDatafeedChartApi,
   LibrarySymbolInfo,
   PeriodParams,
   HistoryCallback,
@@ -17,8 +16,6 @@ import {
 import { CleanupFunction, Codex } from "@codex-data/sdk";
 import {
   OnBarsUpdatedResponse,
-  Price,
-  QuoteToken,
   BarsResponse,
 } from "@codex-data/sdk/dist/resources/graphql";
 
@@ -36,34 +33,35 @@ export const TVChartContainer = (
   const subscriptionCallbacks = useRef(
     new Map<string, SubscribeBarsCallback>()
   );
-
   const chartContainerRef = useRef<HTMLDivElement>(
     null
   ) as React.RefObject<HTMLInputElement>;
 
-  const sdk = new Codex(DEFINED_API_KEY);
+  const lastResolution = useRef<string | null>(null);
+  const lastBarRef = useRef<Bar | null>(null);
+  const sdkRef = useRef<Codex | null>(null);
+  const updateThrottleRef = useRef<NodeJS.Timeout | null>(null);
 
-  const transformToTradingViewBars = (data: BarsResponse): Bar[] => {
-    if (!data || !Array.isArray(data.t)) {
-      return [];
+  useEffect(() => {
+    sdkRef.current = new Codex(DEFINED_API_KEY);
+    return () => {
+      // TODO: cleanup?
+    };
+  }, []);
+
+  const throttledBarUpdate = (callback: () => void) => {
+    if (updateThrottleRef.current) {
+      clearTimeout(updateThrottleRef.current);
     }
-
-    return data.t.map((time: number, i: number) => ({
-      time: time * 1000,
-      open: Number(data.o[i]),
-      high: Number(data.h[i]),
-      low: Number(data.l[i]),
-      close: Number(data.c[i]),
-      volume: data.v ? Number(data.v[i]) : undefined,
-    }));
+    // 50ms throttle (can probably be removed)
+    updateThrottleRef.current = setTimeout(callback, 50);
   };
 
-  const handleBarUpdate = (data: OnBarsUpdatedMeta) => {
-    console.log("handleBarUpdate", data.onBarsUpdated);
-    if (!data || !data.onBarsUpdated.aggregates?.r1?.token) return;
+  const handleBarUpdate = useCallback((data: OnBarsUpdatedMeta) => {
+    if (!data?.onBarsUpdated?.aggregates?.r1?.token) return;
 
     const token = data.onBarsUpdated.aggregates.r1.token;
-    const bar: Bar = {
+    const currentBar: Bar = {
       time: token.t * 1000,
       open: Number(token.o),
       high: Number(token.h),
@@ -72,14 +70,44 @@ export const TVChartContainer = (
       volume: token.volume ? Number(token.volume) : undefined,
     };
 
-    subscriptionCallbacks.current.forEach((callback) => {
-      callback(bar);
+    throttledBarUpdate(() => {
+      const lastBar = lastBarRef.current;
+      if (lastBar && lastBar.time === currentBar.time) {
+        // update
+        const updatedBar: Bar = {
+          ...currentBar,
+          open: lastBar.open,
+          high: Math.max(lastBar.high, currentBar.high),
+          low: Math.min(lastBar.low, currentBar.low),
+        };
+        lastBarRef.current = updatedBar;
+        subscriptionCallbacks.current.forEach((callback) => {
+          try {
+            callback(updatedBar);
+          } catch (err) {
+            console.error("Error in subscription callback:", err);
+          }
+        });
+      } else {
+        // create
+        lastBarRef.current = currentBar;
+        subscriptionCallbacks.current.forEach((callback) => {
+          try {
+            callback(currentBar);
+          } catch (err) {
+            console.error("Error in subscription callback:", err);
+          }
+        });
+      }
     });
-  };
+  }, []);
 
-  const createSubscription = (subscriberUID: string) => {
-    return sdk.subscribe<OnBarsUpdatedResponse, { pairId: string }>(
-      `subscription OnBarsUpdated($pairId: String) {
+  const createSubscription = useCallback(
+    (subscriberUID: string) => {
+      if (!sdkRef.current) return () => {};
+
+      return sdkRef.current.subscribe<OnBarsUpdatedMeta, { pairId: string }>(
+        `subscription OnBarsUpdated($pairId: String) {
         onBarsUpdated(pairId: $pairId) {
           eventSortKey
           networkId
@@ -102,23 +130,77 @@ export const TVChartContainer = (
           }
         }
       }`,
-      { pairId: PAIR_ID },
-      {
-        next: ({ data }) => {
-          if (data) {
-            // @ts-expect-error - Types are weirdly mismatched?
-            handleBarUpdate(data);
-          }
-        },
-        error: (err) => {
-          console.error("Subscription error:", err);
-        },
-        complete: () => {
-          console.log("Subscription completed");
-        },
-      }
-    );
+        { pairId: PAIR_ID },
+        {
+          next: ({ data }) => {
+            if (data) {
+              handleBarUpdate(data);
+            }
+          },
+          error: (err) => {
+            console.error("Subscription error:", err);
+          },
+          complete: () => {
+            console.log("Subscription completed");
+          },
+        }
+      );
+    },
+    [handleBarUpdate]
+  );
+
+  const transformToTradingViewBars = (data: BarsResponse): Bar[] => {
+    if (!data || !Array.isArray(data.t)) {
+      return [];
+    }
+
+    return data.t.map((time: number, i: number) => ({
+      time: time * 1000,
+      open: Number(data.o[i]),
+      high: Number(data.h[i]),
+      low: Number(data.l[i]),
+      close: Number(data.c[i]),
+      volume: data.v ? Number(data.v[i]) : undefined,
+    }));
   };
+
+  const loadInitialData = useCallback(async (resolution: string) => {
+    if (!sdkRef.current) return;
+
+    try {
+      const currentTime = Math.floor(Date.now() / 1000);
+      // last 24 hours by default
+      const timeRange = 24 * 60 * 60;
+      const from = currentTime - timeRange;
+
+      console.log(`Loading initial data from ${from} to ${currentTime}`);
+
+      const response = await sdkRef.current.queries.getBars({
+        symbol: PAIR_ID,
+        from,
+        to: currentTime,
+        resolution: resolution.replace("S", ""),
+        removeEmptyBars: true,
+      });
+
+      if (response.getBars) {
+        const bars = transformToTradingViewBars(response.getBars);
+        if (bars.length > 0) {
+          lastBarRef.current = bars[bars.length - 1];
+        }
+      }
+    } catch (err) {
+      console.error("Error loading initial data:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const resolution = props.interval || "1S";
+    if (lastResolution.current !== resolution) {
+      lastResolution.current = resolution;
+      loadInitialData(resolution);
+    }
+  }, [props.interval, loadInitialData]);
 
   useEffect(() => {
     const widgetOptions: ChartingLibraryWidgetOptions = {
@@ -226,7 +308,7 @@ export const TVChartContainer = (
             const maxDataPoints = 1500;
             const timeRange = maxDataPoints * resolutionInSeconds;
 
-            // Convert TradingView's millisecond timestamps to seconds
+            // TV millisecond timestamps to seconds
             let to = periodParams.to
               ? Math.floor(periodParams.to / 1000)
               : Math.floor(Date.now() / 1000);
@@ -234,7 +316,7 @@ export const TVChartContainer = (
               ? Math.floor(periodParams.from / 1000)
               : to - timeRange;
 
-            // Ensure 'from' is not greater than 'to'
+            // 'from' !> 'to'
             if (from >= to) {
               console.warn(
                 "Invalid time range detected, adjusting 'from' value"
@@ -242,7 +324,7 @@ export const TVChartContainer = (
               from = to - timeRange;
             }
 
-            // Ensure we don't exceed the max data points
+            // don't exceed max data points
             const actualTimeRange = to - from;
             if (actualTimeRange > timeRange) {
               from = to - timeRange;
@@ -252,22 +334,26 @@ export const TVChartContainer = (
               `Fetching bars from ${from} to ${to} with resolution ${resolution}`
             );
 
-            const response = await sdk.queries.getBars({
+            const response = await sdkRef.current?.queries.getBars({
               symbol: PAIR_ID,
               from,
               to,
-              resolution: resolution.replace("S", ""), // Remove 'S' suffix for seconds
+              resolution: resolution.replace("S", ""),
               removeEmptyBars: true,
             });
 
             console.log("GetBars response:", response);
 
-            if (!response.getBars) {
+            if (!response?.getBars) {
               onResult([], { noData: true });
               return;
             }
 
             const bars = transformToTradingViewBars(response.getBars);
+            if (bars.length > 0) {
+              lastBarRef.current = bars[bars.length - 1];
+            }
+
             console.log("Trading View Bars:", bars);
             onResult(bars, {
               noData: bars.length === 0,
@@ -319,7 +405,6 @@ export const TVChartContainer = (
         "use_localstorage_for_settings",
         "timeframes_toolbar",
         "volume_force_overlay",
-        "create_volume_indicator_by_default",
       ],
       charts_storage_url: props.charts_storage_url,
       charts_storage_api_version: props.charts_storage_api_version,
@@ -350,9 +435,16 @@ export const TVChartContainer = (
     });
 
     return () => {
-      // Cleanup subscriptions
-      activeSubscriptions.current.forEach((subscription) => {
-        subscription();
+      if (updateThrottleRef.current) {
+        clearTimeout(updateThrottleRef.current);
+      }
+
+      activeSubscriptions.current.forEach((cleanup) => {
+        try {
+          cleanup();
+        } catch (err) {
+          console.error("Error cleaning up subscription:", err);
+        }
       });
       activeSubscriptions.current.clear();
       subscriptionCallbacks.current.clear();
