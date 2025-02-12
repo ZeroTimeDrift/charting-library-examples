@@ -23,6 +23,21 @@ interface OnBarsUpdatedMeta {
   onBarsUpdated: OnBarsUpdatedResponse;
 }
 
+interface OnUnconfirmedBarsUpdatedMeta {
+  onUnconfirmedBarsUpdated: {
+    aggregates: {
+      r1S: {
+        t: number;
+        o: string;
+        h: string;
+        l: string;
+        c: string;
+        volume: string;
+      };
+    };
+  };
+}
+
 export const TVChartContainer = (
   props: Partial<ChartingLibraryWidgetOptions>
 ) => {
@@ -52,60 +67,44 @@ export const TVChartContainer = (
     };
   }, []);
 
-  const handleBarUpdate = useCallback(
-    (data: OnBarsUpdatedMeta, resolution: string) => {
-      if (!data?.onBarsUpdated?.aggregates?.r1?.token) return;
+  const handleBarUpdate = useCallback((data: OnUnconfirmedBarsUpdatedMeta) => {
+    if (!data?.onUnconfirmedBarsUpdated?.aggregates?.r1S) return;
 
-      const token = data.onBarsUpdated.aggregates.r1.token;
+    const token = data.onUnconfirmedBarsUpdated.aggregates.r1S;
 
-      let timestamp = token.t * 1000; // convert to millis
+    // Create bar in TradingView format - using r1S (1-second) data
+    const bar: Bar = {
+      time: token.t * 1000, // Convert to milliseconds
+      open: Number(token.o),
+      high: Number(token.h),
+      low: Number(token.l),
+      close: Number(token.c),
+      volume: token.volume ? Number(token.volume) : 0,
+    };
 
-      if (resolution !== "1S") {
-        const resolutionMs = resolution.endsWith("S")
-          ? parseInt(resolution.replace("S", "")) * 1000
-          : parseInt(resolution) * 60 * 1000;
-
-        // round to resolution interval (?)
-        timestamp = Math.floor(timestamp / resolutionMs) * resolutionMs;
-      }
-
-      const bar: Bar = {
-        time: timestamp,
-        open: Number(token.o),
-        high: Number(token.h),
-        low: Number(token.l),
-        close: Number(token.c),
-        volume: token.volume ? Number(token.volume) : 0,
-      };
-
-      subscriptionCallbacks.current.forEach((callback) => callback(bar));
-    },
-    []
-  );
+    // Send update to all subscribers
+    subscriptionCallbacks.current.forEach((callback) => callback(bar));
+  }, []);
 
   const createSubscription = useCallback(
-    (subscriberUID: string, resolution: string) => {
+    (subscriberUID: string) => {
       if (!sdkRef.current) return () => {};
 
-      // store res with subscriber
-      const subscriber = {
-        callback: subscriptionCallbacks.current.get(subscriberUID),
-        resolution,
-      };
-
-      return sdkRef.current.subscribe<OnBarsUpdatedMeta, { pairId: string }>(
-        `subscription OnBarsUpdated($pairId: String) {
-          onBarsUpdated(pairId: $pairId) {
+      return sdkRef.current.subscribe<
+        OnUnconfirmedBarsUpdatedMeta,
+        { pairId: string }
+      >(
+        `subscription OnUnconfirmedBarsUpdated($pairId: String) {
+          onUnconfirmedBarsUpdated(pairId: $pairId, quoteToken: token0) {
             aggregates {
-              r1 { 
-                token { 
-                  t 
-                  o 
-                  h 
-                  l 
-                  c 
-                  volume 
-                } 
+              r1S {
+                c
+                h
+                l
+                o
+                t
+                v
+                volume
               }
             }
           }
@@ -114,7 +113,8 @@ export const TVChartContainer = (
         {
           next: ({ data }) => {
             if (data) {
-              handleBarUpdate(data, resolution);
+              console.log("data", data);
+              handleBarUpdate(data);
             }
           },
           error: (err) => {
@@ -270,10 +270,11 @@ export const TVChartContainer = (
               volume_precision: 8,
               data_status: "streaming",
               intraday_multipliers: ["1", "5", "15", "30", "60", "240"],
-              seconds_multipliers: ["1", "5"],
+              seconds_multipliers: ["1", "5", "15"],
               supported_resolutions: [
                 "1S",
                 "5S",
+                "15S",
                 "1",
                 "5",
                 "15",
@@ -303,7 +304,7 @@ export const TVChartContainer = (
             resolution
           );
           subscriptionCallbacks.current.set(subscriberUID, onTick);
-          const subscription = createSubscription(subscriberUID, resolution);
+          const subscription = createSubscription(subscriberUID);
           activeSubscriptions.current.set(subscriberUID, subscription);
         },
         unsubscribeBars: (subscriberUID: any) => {
