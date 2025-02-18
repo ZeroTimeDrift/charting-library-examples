@@ -1,3 +1,4 @@
+/*
 import styles from "./index.module.css";
 import { useEffect, useRef, useCallback } from "react";
 import {
@@ -188,6 +189,8 @@ export const TVChartContainer = (
         ? Math.floor(periodParams.from / 1000)
         : to - 24 * 60 * 60; // 24hrs
 
+      console.log(to, from);
+
       const data = await fetchHistoricalData(from, to, resolution);
 
       if (!data) {
@@ -259,7 +262,7 @@ export const TVChartContainer = (
               timezone: "Etc/UTC",
               exchange: "Raydium",
               minmov: 1,
-              pricescale: 10000000,
+              pricescale: 10000,
               has_intraday: true,
               has_seconds: true,
               has_ticks: true,
@@ -374,6 +377,79 @@ export const TVChartContainer = (
       });
       activeSubscriptions.current.clear();
       subscriptionCallbacks.current.clear();
+      tvWidget.remove();
+    };
+  }, [props]);
+
+  return (
+    <>
+      <header className={styles.VersionHeader}>
+        <h1>TradingView Charting Library and Next.js Integration Example</h1>
+      </header>
+      <div ref={chartContainerRef} className={styles.TVChartContainer} />
+    </>
+  );
+};
+*/
+
+import styles from "./index.module.css";
+import { useEffect, useRef } from "react";
+import {
+  ChartingLibraryWidgetOptions,
+  LanguageCode,
+  ResolutionString,
+  widget,
+} from "@/public/static/charting_library";
+import { datafeedConfig } from "@/lib/datafeed";
+
+export const TVChartContainer = (
+  props: Partial<ChartingLibraryWidgetOptions>
+) => {
+  const chartContainerRef = useRef<HTMLDivElement>(
+    null
+  ) as React.MutableRefObject<HTMLInputElement>;
+
+  useEffect(() => {
+    const widgetOptions: ChartingLibraryWidgetOptions = {
+      symbol: props.symbol,
+      // BEWARE: no trailing slash is expected in feed URL
+      datafeed: datafeedConfig as any,
+      interval: props.interval as ResolutionString,
+      container: chartContainerRef.current,
+      library_path: props.library_path,
+      locale: props.locale as LanguageCode,
+      disabled_features: ["use_localstorage_for_settings"],
+      enabled_features: ["study_templates"],
+      charts_storage_url: props.charts_storage_url,
+      charts_storage_api_version: props.charts_storage_api_version,
+      client_id: props.client_id,
+      user_id: props.user_id,
+      fullscreen: props.fullscreen,
+      autosize: props.autosize,
+    };
+
+    const tvWidget = new widget(widgetOptions);
+
+    tvWidget.onChartReady(() => {
+      tvWidget.headerReady().then(() => {
+        const button = tvWidget.createButton();
+        button.setAttribute("title", "Click to show a notification popup");
+        button.classList.add("apply-common-tooltip");
+        button.addEventListener("click", () =>
+          tvWidget.showNoticeDialog({
+            title: "Notification",
+            body: "Crashout Engineering",
+            callback: () => {
+              console.log("Noticed!");
+            },
+          })
+        );
+
+        button.innerHTML = "Check API";
+      });
+    });
+
+    return () => {
       tvWidget.remove();
     };
   }, [props]);

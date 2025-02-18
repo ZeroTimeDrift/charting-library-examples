@@ -9,8 +9,8 @@ import {
 } from "@/public/static/charting_library/charting_library";
 
 const defaultWidgetProps: Partial<ChartingLibraryWidgetOptions> = {
-  symbol: "AAPL",
-  interval: "1D" as ResolutionString,
+  symbol: "WIF",
+  interval: "1S" as ResolutionString,
   library_path: "/static/charting_library/",
   locale: "en",
   charts_storage_url: "https://saveload.tradingview.com",
