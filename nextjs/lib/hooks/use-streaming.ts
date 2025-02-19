@@ -6,24 +6,23 @@ import {
   SubscribeBarsCallback,
 } from "@/public/static/charting_library/charting_library";
 import { Codex } from "@codex-data/sdk";
-import {
-  CODEX_API_KEY,
-  RAYDIUM_AMM_ADDRESS,
-  RAYDIUM_CLMM_ADDRESS,
-  SOLANA_NETWORK_ID,
-} from "../consts";
+import { CODEX_API_KEY, SOLANA_NETWORK_ID } from "../consts";
 import { getAddressFromTicker } from "../datafeed";
 
-interface OnUnconfirmedBarsUpdatedMeta {
-  onUnconfirmedBarsUpdated: {
+interface OnTokenBarsUpdatedMeta {
+  onTokenBarsUpdated: {
+    tokenId: string;
     aggregates: {
       r1S: {
         t: number;
-        o: string;
-        h: string;
-        l: string;
-        c: string;
-        v: string;
+        usd: {
+          t: string;
+          o: string;
+          h: string;
+          l: string;
+          c: string;
+          v: string;
+        };
       };
     };
   };
@@ -42,10 +41,10 @@ export function useStreamingData() {
   }, []);
 
   const handleBarUpdate = useCallback(
-    (data: OnUnconfirmedBarsUpdatedMeta, subscriberUID: string) => {
-      if (!data?.onUnconfirmedBarsUpdated?.aggregates?.r1S) return;
+    (data: OnTokenBarsUpdatedMeta, subscriberUID: string) => {
+      if (!data?.onTokenBarsUpdated?.aggregates?.r1S) return;
 
-      const token = data.onUnconfirmedBarsUpdated.aggregates.r1S;
+      const token = data.onTokenBarsUpdated.aggregates.r1S;
       const callback = subscriptionCallbacks.current.get(subscriberUID);
 
       if (!callback) return;
@@ -53,11 +52,11 @@ export function useStreamingData() {
       // Create bar in TradingView format
       const bar: Bar = {
         time: token.t * 1000, // Convert to milliseconds
-        open: Number(token.o),
-        high: Number(token.h),
-        low: Number(token.l),
-        close: Number(token.c),
-        volume: token.v ? Number(token.v) : 0,
+        open: Number(token.usd.o),
+        high: Number(token.usd.h),
+        low: Number(token.usd.l),
+        close: Number(token.usd.c),
+        volume: token.usd.v ? Number(token.usd.v) : 0,
       };
 
       subscriptionCallbacks.current.forEach((callback) => callback(bar));
@@ -89,6 +88,7 @@ export function useStreamingData() {
 
       const address = getAddressFromTicker(symbolInfo.name.split("/")[0]);
 
+      /*
       const pairs = await codexClient.current.queries.listPairsForToken({
         networkId: SOLANA_NETWORK_ID,
         tokenAddress: address,
@@ -111,26 +111,30 @@ export function useStreamingData() {
 
       console.log("[subscribe]: Pairs", pairs);
       console.log("[subscribe]: Best pairs", bestPairs);
+      */
 
       return codexClient.current.subscribe<
-        OnUnconfirmedBarsUpdatedMeta,
-        { pairId: string }
+        OnTokenBarsUpdatedMeta,
+        { tokenId: string }
       >(
-        `subscription OnUnconfirmedBarsUpdated($pairId: String) {
-                onUnconfirmedBarsUpdated(pairId: $pairId, quoteToken: token0) {
+        `subscription OnTokenBarsUpdated($tokenId: String) {
+                onTokenBarsUpdated(tokenId: $tokenId) {
                     aggregates {
                         r1S {
+                          t
+                          usd {
                             t
                             o
                             h
                             l
                             c
-                            v
+                            volume
+                          }
                         }
                     }
                 }
             }`,
-        { pairId: bestPairs?.[0]?.id || "" },
+        { tokenId: `${address}:${SOLANA_NETWORK_ID}` },
         {
           next: ({ data }) => {
             console.log("Received streaming data:", data);
