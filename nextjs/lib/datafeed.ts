@@ -8,6 +8,7 @@ import {
 } from "@/public/static/charting_library/charting_library";
 import { CODEX_API_KEY, CONFIGURATION_DATA, SOLANA_NETWORK_ID } from "./consts";
 import { createSubscription, unsubscribeFromStream } from "./stream";
+import { QuoteToken } from "@codex-data/sdk/dist/resources/graphql";
 
 export const datafeedConfig = {
   onReady: (callback: any) => {
@@ -176,11 +177,11 @@ export const datafeedConfig = {
 };
 
 // TODO: Remove this once we have a real implementation
-export async function getAddressFromTicker(ticker: string) {
+export function getAddressFromTicker(ticker: string) {
   return "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
 }
 
-async function fetchBars(
+export async function fetchBars(
   symbol: string,
   resolution: string,
   from: number,
@@ -197,12 +198,15 @@ async function fetchBars(
     removeEmptyBars: true,
     removeLeadingNullValues: true,
     countback: 100,
+    quoteToken: QuoteToken.Token0,
   });
+
+  console.log("[fetchBars]: Response", response);
 
   return response.getBars;
 }
 
-async function getPairs(
+export async function getPairs(
   tokenAddress: string = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
 ) {
   try {
@@ -245,7 +249,7 @@ async function getPairs(
   }
 }
 
-async function getAllSymbols() {
+export async function getAllSymbols() {
   let allSymbols: any[] = [];
 
   try {
@@ -290,7 +294,7 @@ async function getAllSymbols() {
   }
 }
 
-function generateSymbol(
+export function generateSymbol(
   exchange: string,
   fromSymbol: string,
   toSymbol: string
@@ -303,7 +307,7 @@ function generateSymbol(
   };
 }
 
-function parseFullSymbol(fullSymbol: string) {
+export function parseFullSymbol(fullSymbol: string) {
   const match = fullSymbol.match(/^(\w+):(\w+)\/(\w+)$/);
   if (!match) {
     return null;

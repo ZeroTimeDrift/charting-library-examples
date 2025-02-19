@@ -19,6 +19,7 @@ const defaultWidgetProps: Partial<ChartingLibraryWidgetOptions> = {
   user_id: "public_user_id",
   fullscreen: false,
   autosize: true,
+  theme: "dark",
 };
 
 const TVChartContainer = dynamic(

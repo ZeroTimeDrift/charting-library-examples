@@ -400,11 +400,12 @@ import {
   ResolutionString,
   widget,
 } from "@/public/static/charting_library";
-import { datafeedConfig } from "@/lib/datafeed";
+import { useDatafeed } from "@/lib/hooks/use-datafeed";
 
 export const TVChartContainer = (
   props: Partial<ChartingLibraryWidgetOptions>
 ) => {
+  const datafeed = useDatafeed();
   const chartContainerRef = useRef<HTMLDivElement>(
     null
   ) as React.MutableRefObject<HTMLInputElement>;
@@ -413,7 +414,7 @@ export const TVChartContainer = (
     const widgetOptions: ChartingLibraryWidgetOptions = {
       symbol: props.symbol,
       // BEWARE: no trailing slash is expected in feed URL
-      datafeed: datafeedConfig as any,
+      datafeed: datafeed as any,
       interval: props.interval as ResolutionString,
       container: chartContainerRef.current,
       library_path: props.library_path,
@@ -456,9 +457,6 @@ export const TVChartContainer = (
 
   return (
     <>
-      <header className={styles.VersionHeader}>
-        <h1>TradingView Charting Library and Next.js Integration Example</h1>
-      </header>
       <div ref={chartContainerRef} className={styles.TVChartContainer} />
     </>
   );

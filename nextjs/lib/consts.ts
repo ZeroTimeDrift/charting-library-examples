@@ -6,10 +6,10 @@ export const CONFIGURATION_DATA = {
     "1S",
     "5S",
     "15S",
-    "1M",
-    "5M",
-    "15M",
-    "30M",
+    "1",
+    "5",
+    "15",
+    "30",
     "1H",
     "4H",
     "6H",
@@ -23,3 +23,11 @@ export const CONFIGURATION_DATA = {
   ],
   symbols_types: [{ name: "crypto", value: "crypto" }],
 };
+
+export const RAYDIUM_AMM_ADDRESS =
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+export const RAYDIUM_CLMM_ADDRESS =
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK";
+
+export const SOLANA_MINT = "So11111111111111111111111111111111111111112";
+export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
