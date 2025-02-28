@@ -34,6 +34,7 @@ export const TVChartContainer = (
       charts_storage_api_version: props.charts_storage_api_version,
       client_id: props.client_id,
       user_id: props.user_id,
+      time_scale: props.time_scale,
       fullscreen: props.fullscreen,
       autosize: props.autosize,
       custom_themes: {

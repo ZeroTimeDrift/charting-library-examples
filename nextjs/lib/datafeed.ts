@@ -178,7 +178,7 @@ export const datafeedConfig = {
 
 // TODO: Remove this once we have a real implementation
 export function getAddressFromTicker(ticker: string) {
-  return "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
+  return "424bonrXze6zWnwpzFybH6U89P9A8fCcSmfiTEF2pump";
 }
 
 export async function fetchBars(
@@ -198,7 +198,7 @@ export async function fetchBars(
     removeEmptyBars: true,
     removeLeadingNullValues: true,
     countback: 100,
-    quoteToken: QuoteToken.Token0,
+    quoteToken: QuoteToken.Token1,
   });
 
   console.log("[fetchBars]: Response", response);
@@ -207,7 +207,7 @@ export async function fetchBars(
 }
 
 export async function getPairs(
-  tokenAddress: string = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+  tokenAddress: string = "424bonrXze6zWnwpzFybH6U89P9A8fCcSmfiTEF2pump"
 ) {
   try {
     const response = await axios.post(

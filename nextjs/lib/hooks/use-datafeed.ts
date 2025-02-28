@@ -64,7 +64,7 @@ export function useDatafeed(interval?: string) {
         const pairInfo = await getPairs(address);
         console.log("[resolveSymbol]: Pair info", pairInfo);
 
-        const symbolInfo = {
+        const symbolInfo: LibrarySymbolInfo = {
           name: `${symbolParts.fromSymbol}/${symbolParts.toSymbol}`,
           description: "",
           type: "crypto",
@@ -72,11 +72,15 @@ export function useDatafeed(interval?: string) {
           timezone: "Etc/UTC",
           exchange: symbolParts.exchange,
           minmov: 1,
-          pricescale: Math.pow(10, pairInfo.decimals),
+          pricescale: 1 * Math.pow(10, 9),
           has_intraday: true,
           has_seconds: true,
           has_daily: true,
           has_weekly_and_monthly: true,
+          has_empty_bars: true,
+          build_seconds_from_ticks: true,
+          has_ticks: true,
+          seconds_multipliers: ["1", "2"],
           supported_resolutions: CONFIGURATION_DATA.supported_resolutions,
           volume_precision: 2,
           data_status: "streaming",
