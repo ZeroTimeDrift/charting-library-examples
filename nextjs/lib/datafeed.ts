@@ -9,6 +9,7 @@ import {
 import { CODEX_API_KEY, CONFIGURATION_DATA, SOLANA_NETWORK_ID } from "./consts";
 import { createSubscription, unsubscribeFromStream } from "./stream";
 import { QuoteToken } from "@codex-data/sdk/dist/resources/graphql";
+import { TOKENS } from "@/pages";
 
 export const datafeedConfig = {
   onReady: (callback: any) => {
@@ -103,7 +104,7 @@ export const datafeedConfig = {
 
     try {
       const symbol = symbolInfo.name.split("/")[0];
-      const address = await getAddressFromTicker(symbol);
+      const address = getAddressFromTicker(symbol);
 
       const barsData = await fetchBars(
         `${address}:${SOLANA_NETWORK_ID}`,
@@ -176,9 +177,8 @@ export const datafeedConfig = {
   },
 };
 
-// TODO: Remove this once we have a real implementation
 export function getAddressFromTicker(ticker: string) {
-  return "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";
+  return TOKENS.find((token) => token.symbol === ticker)?.address;
 }
 
 export async function fetchBars(
@@ -198,7 +198,7 @@ export async function fetchBars(
     removeEmptyBars: true,
     removeLeadingNullValues: true,
     countback: 100,
-    quoteToken: QuoteToken.Token0,
+    quoteToken: QuoteToken.Token1,
   });
 
   console.log("[fetchBars]: Response", response);

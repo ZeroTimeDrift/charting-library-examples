@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStreamingData } from "./use-streaming";
 import { CONFIGURATION_DATA, SOLANA_NETWORK_ID } from "../consts";
 import {
@@ -14,9 +14,11 @@ import {
   SubscribeBarsCallback,
 } from "@/public/static/charting_library/charting_library";
 import { CleanupFunction } from "@codex-data/sdk";
+import { TOKENS } from "@/pages";
 
 export function useDatafeed(interval?: string) {
   const { subscribe, unsubscribe } = useStreamingData();
+  const [tokenInfo, setTokenInfo] = useState<(typeof TOKENS)[0] | null>(null);
   const activeSubscriptions = useRef(new Map<string, CleanupFunction>());
   const lastResolution = useRef<string | null>(null);
 
@@ -58,14 +60,24 @@ export function useDatafeed(interval?: string) {
           toSymbol: "SOL",
           exchange: "Solana",
         };
+
+        const token = TOKENS.find(
+          (token) => token.symbol === symbolParts.fromSymbol
+        );
+
+        if (token) {
+          setTokenInfo(token);
+        }
+
         console.log("[resolveSymbol]: Symbol parts", symbolParts);
-        const address = await getAddressFromTicker(symbolParts.fromSymbol);
+        const address =
+          token?.address || getAddressFromTicker(symbolParts.fromSymbol);
         console.log("[resolveSymbol]: Address", address);
         const pairInfo = await getPairs(address);
         console.log("[resolveSymbol]: Pair info", pairInfo);
 
         const symbolInfo = {
-          name: `${symbolParts.fromSymbol}/${symbolParts.toSymbol}`,
+          name: `${symbolName}/${symbolParts.toSymbol}`,
           description: "",
           type: "crypto",
           session: "24x7",
@@ -75,8 +87,11 @@ export function useDatafeed(interval?: string) {
           pricescale: Math.pow(10, pairInfo.decimals),
           has_intraday: true,
           has_seconds: true,
+          has_ticks: true,
           has_daily: true,
           has_weekly_and_monthly: true,
+          build_from_ticks: true,
+          seconds_multipliers: ["1"],
           supported_resolutions: CONFIGURATION_DATA.supported_resolutions,
           volume_precision: 2,
           data_status: "streaming",
@@ -108,11 +123,18 @@ export function useDatafeed(interval?: string) {
       console.log("[getBars]: Method call", symbolInfo, resolution);
 
       try {
-        const symbol = symbolInfo.name.split("/")[0];
-        const address = getAddressFromTicker(symbol);
+        const symbolParts = parseFullSymbol(symbolInfo.name) || {
+          fromSymbol: symbolInfo.name.split("/")[0],
+          toSymbol: "SOL",
+          exchange: "Solana",
+        };
+
+        console.log("[getBars]: Symbol parts", symbolParts);
 
         const barsData = await fetchBars(
-          `${address}:${SOLANA_NETWORK_ID}`,
+          `${
+            tokenInfo?.address || getAddressFromTicker(symbolParts.fromSymbol)
+          }:${SOLANA_NETWORK_ID}`,
           resolution,
           periodParams.from,
           periodParams.to
@@ -168,6 +190,8 @@ export function useDatafeed(interval?: string) {
         "resolution:",
         resolution
       );
+      console.log("[subscribeBars]: Symbol info", symbolInfo);
+      console.log("[subscribeBars]: Token info", tokenInfo);
       const subscription = await subscribe(
         symbolInfo,
         resolution,
